@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trending Projects</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 24px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            color: #fff;
+        }
+
+        #projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .project-card {
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            overflow: hidden;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .project-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        .project-thumbnail {
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            object-fit: cover;
+            background-color: #333;
+        }
+
+        .project-info {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+
+        .project-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #fff;
+            margin: 0 0 8px 0;
+            text-decoration: none;
+        }
+
+        .project-title:hover {
+            text-decoration: underline;
+        }
+        
+        .project-author {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: auto;
+            color: #aaa;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        
+        .project-author:hover {
+            color: #fff;
+        }
+
+        .author-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        #loader {
+            text-align: center;
+            padding: 20px;
+            font-size: 1.2rem;
+            color: #aaa;
+            display: none; /* Initially hidden */
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Hot Desktop Projects</h1>
+    </header>
+
+    <main id="projects-grid"></main>
+    <div id="loader">Loading more projects...</div>
+
+    <script type="module">
+        const projectsGrid = document.getElementById('projects-grid');
+        const loader = document.getElementById('loader');
+
+        let offset = 0;
+        const limit = 24;
+        let isLoading = false;
+        let hasMore = true;
+        let userId = null;
+
+        async function fetchAndRenderProjects() {
+            if (isLoading || !hasMore) {
+                return;
+            }
+
+            isLoading = true;
+            loader.style.display = 'block';
+
+            try {
+                const url = new URL('/api/v1/feed/trending', window.location.origin);
+                url.searchParams.set('limit', limit);
+                url.searchParams.set('offset', offset);
+                url.searchParams.set('feed', 'hot_desktop');
+                url.searchParams.set('range', 'all');
+                if (userId) {
+                    url.searchParams.set('for_user_id', userId);
+                }
+
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const { feed } = await response.json();
+                
+                const projects = feed.data;
+
+                if (projects.length === 0) {
+                    hasMore = false;
+                    loader.textContent = 'No more projects to load.';
+                } else {
+                    projects.forEach(item => {
+                        const card = createProjectCard(item);
+                        projectsGrid.appendChild(card);
+                    });
+                    offset += limit;
+                }
+            } catch (error) {
+                console.error("Failed to fetch projects:", error);
+                loader.textContent = 'Failed to load projects.';
+            } finally {
+                isLoading = false;
+                if(hasMore) {
+                   loader.style.display = 'none';
+                }
+            }
+        }
+        
+        function createProjectCard({ project, site }) {
+            if (!project || !site || !project.created_by) {
+                console.warn('Skipping incomplete project item:', { project, site });
+                return document.createDocumentFragment();
+            }
+
+            const card = document.createElement('a');
+            card.className = 'project-card';
+            card.href = `/p/${project.id}`;
+            card.target = '_blank';
+            
+            const thumbnailUrl = `https://images.websim.com/v1/site/${site.id}/600`;
+            const authorProfileUrl = `https://websim.com/@${project.created_by.username}`;
+            const authorAvatarUrl = `https://images.websim.com/avatar/${project.created_by.username}`;
+
+            card.innerHTML = `
+                <img src="${thumbnailUrl}" alt="${project.title || 'Project thumbnail'}" class="project-thumbnail" loading="lazy">
+                <div class="project-info">
+                    <div class="project-title">${project.title || 'Untitled Project'}</div>
+                    <div class="project-author">
+                        <img src="${authorAvatarUrl}" alt="${project.created_by.username}" class="author-avatar">
+                        <span>@${project.created_by.username}</span>
+                    </div>
+                </div>
+            `;
+            
+            // Prevent card link from navigating when clicking the author link inside it.
+            // This is not standard but we can stop propagation. A better structure would avoid nested links.
+            const authorLinkDiv = card.querySelector('.project-author');
+            authorLinkDiv.addEventListener('click', (e) => {
+                 e.preventDefault();
+                 window.open(authorProfileUrl, '_blank');
+            });
+
+
+            return card;
+        }
+
+        function handleScroll() {
+            const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
+            // Load more when user is 500px from the bottom
+            if (scrollTop + clientHeight >= scrollHeight - 500) {
+                fetchAndRenderProjects();
+            }
+        }
+
+        async function main() {
+            try {
+                const user = await window.websim.getUser();
+                if (user && user.id) {
+                    userId = user.id;
+                }
+            } catch (e) {
+                console.info("Could not get user, proceeding as anonymous.");
+            }
+            
+            await fetchAndRenderProjects();
+            window.addEventListener('scroll', handleScroll);
+        }
+
+        main();
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+
